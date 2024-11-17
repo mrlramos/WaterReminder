@@ -1,18 +1,37 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using WaterReminder.Auth.Interfaces;
+using WaterReminder.Auth.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-var configuration = builder.Configuration;
+// Adicionar serviços ao contêiner.
 
-// Configurar a chave secreta (em produção, use uma chave segura)
-string? jwtSecret = configuration.GetValue("JWT_SECRET", string.Empty);
-if (string.IsNullOrEmpty(jwtSecret)) 
-    throw new Exception("JWT_SECRET nao configurado");
-Console.WriteLine(jwtSecret);
-byte[] key = Encoding.ASCII.GetBytes(jwtSecret);
+builder.Services.AddScoped<ITokenService, TokenService>();
 
-// Configurar autenticação JWT
+// Configuração de CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
+    });
+});
+
+// Adicionar Controllers
+builder.Services.AddControllers();
+
+// Configuração de Autenticação JWT
+var keyJWT = builder.Configuration.GetValue<string>("KeyJWT");
+if (string.IsNullOrEmpty(keyJWT))
+{
+    throw new Exception("KeyJWT não configurado corretamente");
+}
+
+var key = Encoding.ASCII.GetBytes(keyJWT);
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -20,37 +39,39 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuer = false, // Em produção, defina como true
-        ValidateAudience = false, // Em produção, defina como true
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(key)
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateIssuer = false,
+        ValidateAudience = false
     };
 });
 
-builder.Services.AddControllers();
-
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+// (Opcional) Adicionar Swagger para documentação de API
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 
 var app = builder.Build();
+// Configurar o pipeline de solicitação HTTP.
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Redirecionamento HTTPS
+app.UseHttpsRedirection();
 
-//app.UseHttpsRedirection();
+// Roteamento
+app.UseRouting();
 
+// Aplicar política de CORS
+app.UseCors("AllowAll");
+
+// Autenticação e Autorização
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Mapeamento de Controllers
 app.MapControllers();
 
+// Executar a aplicação
 app.Run();

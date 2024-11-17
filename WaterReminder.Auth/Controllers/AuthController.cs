@@ -1,59 +1,60 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
+using WaterReminder.Auth.Interfaces;
 using WaterReminder.Auth.Models;
+using WaterReminder.Auth.Repositories;
+using WaterReminder.Auth.Services;
 
 namespace WaterReminder.Auth.Controllers
 {
-    [ApiController]
-    [Route("[controller]")]
-    public class AuthController : ControllerBase
+    [Route("v1/auth")]
+    public class AuthController : Controller
     {
-        private readonly IConfiguration configuration;
-        public AuthController(IConfiguration configuration)
+        private ITokenService _tokenService { get; set; }
+
+        public AuthController(ITokenService tokenService)
         {
-            this.configuration = configuration;
+            _tokenService = tokenService;
         }
 
-        [HttpPost("login")]
-        public IActionResult Login([FromBody] Login login)
+        [HttpPost]
+        [Route("login")]
+        [AllowAnonymous]
+        public async Task<ActionResult<dynamic>> Authenticate([FromBody] User model)
         {
-            // Validação simples de usuário (substitua pela sua lógica)
-            if (login.Username != "usuario" || login.Password != "senha")
-                return Unauthorized();
+            var user = UserRepository.Get(model.Username, model.Password);
 
-            var tokenHandler = new JwtSecurityTokenHandler();
-            string? jwtSecret = configuration.GetValue("JWT_SECRET", string.Empty);
-            Console.WriteLine(jwtSecret);
+            if (user == null)
+                return NotFound(new { message = "Usuário ou senha inválidos" });
 
-            if (string.IsNullOrEmpty(jwtSecret))
+            var token = _tokenService.GenerateToken(user);
+            user.Password = "";
+            return new
             {
-                throw new Exception("JWT_SECRET nao configurado");
-            }
-
-            byte[] key = Encoding.ASCII.GetBytes(jwtSecret);
-
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(new Claim[]
-                {
-                    new Claim(ClaimTypes.Name, login.Username)
-                }),
-                Expires = DateTime.UtcNow.AddHours(1),
-                SigningCredentials = new SigningCredentials(
-                    new SymmetricSecurityKey(key),
-                    SecurityAlgorithms.HmacSha256Signature
-                )
+                user = user,
+                token = token
             };
-
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-
-            return Ok(new
-            {
-                Token = tokenHandler.WriteToken(token)
-            });
         }
+
+        [HttpGet]
+        [Route("anonymous")]
+        [AllowAnonymous]
+        public string Anonymous() => "Anônimo";
+
+        [HttpGet]
+        [Route("authenticated")]
+        [Authorize]
+        public string Authenticated() => String.Format("Autenticado - {0}", User.Identity.Name);
+
+        [HttpGet]
+        [Route("employee")]
+        [Authorize(Roles = "employee,manager")]
+        public string Employee() => "Funcionário";
+
+        [HttpGet]
+        [Route("manager")]
+        [Authorize(Roles = "manager")]
+        public string Manager() => "Gerente";
+
     }
 }
